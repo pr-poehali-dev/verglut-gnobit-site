@@ -1,6 +1,6 @@
+import { Suspense, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei';
-import { useState } from 'react';
+import { OrbitControls, Grid } from '@react-three/drei';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -241,23 +241,29 @@ const RoomPlanner = () => {
         </CardContent>
       </div>
 
-      <div className="flex-1 relative">
-        <Canvas camera={{ position: [8, 8, 8], fov: 50 }} shadows>
-          <Room 
-            furniture={furniture} 
-            selectedId={selectedId}
-            onSelectFurniture={setSelectedId}
-          />
-          <OrbitControls 
-            enableDamping
-            dampingFactor={0.05}
-            minDistance={5}
-            maxDistance={20}
-          />
-          <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
-            <GizmoViewport />
-          </GizmoHelper>
-        </Canvas>
+      <div className="flex-1 relative bg-secondary">
+        <Suspense fallback={
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Загрузка 3D...</p>
+            </div>
+          </div>
+        }>
+          <Canvas camera={{ position: [8, 8, 8], fov: 50 }}>
+            <Room 
+              furniture={furniture} 
+              selectedId={selectedId}
+              onSelectFurniture={setSelectedId}
+            />
+            <OrbitControls 
+              enableDamping
+              dampingFactor={0.05}
+              minDistance={5}
+              maxDistance={20}
+            />
+          </Canvas>
+        </Suspense>
 
         <div className="absolute top-4 left-4 bg-card/90 backdrop-blur-sm rounded-lg p-4 shadow-lg">
           <h2 className="font-semibold text-lg mb-1">3D Планировщик</h2>
