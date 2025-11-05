@@ -6,8 +6,23 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import Icon from '@/components/ui/icon';
 import { useToast } from '@/hooks/use-toast';
 
+interface FurnitureModel {
+  id: string;
+  name: string;
+  type: string;
+  image: string;
+  dimensions: {
+    width: number;
+    height: number;
+    depth: number;
+  };
+  color: string;
+  description: string;
+}
+
 interface FurnitureItem {
   id: string;
+  modelId: string;
   name: string;
   type: string;
   x: number;
@@ -16,51 +31,110 @@ interface FurnitureItem {
   height: number;
   color: string;
   rotation: number;
+  image: string;
 }
 
 const RoomPlanner = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [furniture, setFurniture] = useState<FurnitureItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<FurnitureModel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isSearching, setIsSearching] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Map<string, HTMLImageElement>>(new Map());
   const { toast } = useToast();
 
   const GRID_SIZE = 20;
   const CELL_SIZE = 30;
+  const SCALE = 20;
 
-  const furnitureLibrary = [
-    { name: 'Диван', type: 'sofa', width: 3, height: 2, color: '#8b5cf6' },
-    { name: 'Кровать', type: 'bed', width: 3, height: 4, color: '#ec4899' },
-    { name: 'Стол', type: 'table', width: 2, height: 2, color: '#f59e0b' },
-    { name: 'Стул', type: 'chair', width: 1, height: 1, color: '#10b981' },
-    { name: 'Шкаф', type: 'wardrobe', width: 2, height: 1, color: '#6366f1' },
-    { name: 'Тумба', type: 'nightstand', width: 1, height: 1, color: '#14b8a6' },
-    { name: 'Полка', type: 'shelf', width: 3, height: 1, color: '#f97316' },
-    { name: 'Комод', type: 'dresser', width: 2, height: 1, color: '#a855f7' },
-  ];
+  useEffect(() => {
+    const loadDefaultModels = async () => {
+      try {
+        const response = await fetch('https://functions.poehali.dev/fa09fac6-d948-415e-ac90-4649f54251ee?query=все');
+        const data = await response.json();
+        setSearchResults(data.models || []);
+      } catch (error) {
+        console.error('Error loading models:', error);
+      }
+    };
+    loadDefaultModels();
+  }, []);
 
-  const filteredLibrary = furnitureLibrary.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const searchFurniture = async () => {
+    if (!searchQuery.trim()) {
+      toast({
+        title: "Введите запрос",
+        description: "Напишите что вы ищете: диван, стол, кровать...",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const addFurniture = (item: typeof furnitureLibrary[0]) => {
+    setIsSearching(true);
+    try {
+      const response = await fetch(`https://functions.poehali.dev/fa09fac6-d948-415e-ac90-4649f54251ee?query=${encodeURIComponent(searchQuery)}`);
+      const data = await response.json();
+      
+      setSearchResults(data.models || []);
+      toast({
+        title: "Поиск завершён",
+        description: `Найдено ${data.total} моделей`,
+      });
+    } catch (error) {
+      toast({
+        title: "Ошибка поиска",
+        description: "Не удалось загрузить модели",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const preloadImage = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = url;
+    });
+  };
+
+  const addFurniture = async (model: FurnitureModel) => {
+    const widthInCells = Math.ceil(model.dimensions.width * SCALE);
+    const depthInCells = Math.ceil(model.dimensions.depth * SCALE);
+
     const newItem: FurnitureItem = {
       id: Date.now().toString(),
-      name: item.name,
-      type: item.type,
-      x: GRID_SIZE / 2,
-      y: GRID_SIZE / 2,
-      width: item.width,
-      height: item.height,
-      color: item.color,
+      modelId: model.id,
+      name: model.name,
+      type: model.type,
+      x: Math.floor(GRID_SIZE / 2 - widthInCells / 2),
+      y: Math.floor(GRID_SIZE / 2 - depthInCells / 2),
+      width: widthInCells,
+      height: depthInCells,
+      color: model.color,
       rotation: 0,
+      image: model.image,
     };
+
+    if (!loadedImages.has(model.image)) {
+      try {
+        const img = await preloadImage(model.image);
+        setLoadedImages(new Map(loadedImages.set(model.image, img)));
+      } catch (error) {
+        console.error('Failed to load image:', error);
+      }
+    }
+
     setFurniture([...furniture, newItem]);
     toast({
       title: "Предмет добавлен",
-      description: `${item.name} добавлен в комнату`,
+      description: `${model.name} добавлен в комнату`,
     });
   };
 
@@ -222,39 +296,40 @@ const RoomPlanner = () => {
     }
 
     furniture.forEach(item => {
-      ctx.fillStyle = item.color;
-      ctx.globalAlpha = 0.7;
-      ctx.fillRect(
-        item.x * CELL_SIZE + 2,
-        item.y * CELL_SIZE + 2,
-        item.width * CELL_SIZE - 4,
-        item.height * CELL_SIZE - 4
-      );
+      const x = item.x * CELL_SIZE;
+      const y = item.y * CELL_SIZE;
+      const w = item.width * CELL_SIZE;
+      const h = item.height * CELL_SIZE;
+
+      const img = loadedImages.get(item.image);
+      if (img) {
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(img, x + 2, y + 2, w - 4, h - 4);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = item.color;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+      }
 
       if (item.id === selectedId) {
         ctx.strokeStyle = '#0EA5E9';
         ctx.lineWidth = 3;
         ctx.globalAlpha = 1;
-        ctx.strokeRect(
-          item.x * CELL_SIZE,
-          item.y * CELL_SIZE,
-          item.width * CELL_SIZE,
-          item.height * CELL_SIZE
-        );
+        ctx.strokeRect(x, y, w, h);
       }
 
       ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(x, y + h - 20, w, 20);
       ctx.fillStyle = '#ffffff';
-      ctx.font = '12px Montserrat';
+      ctx.font = '11px Montserrat';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(
-        item.name,
-        item.x * CELL_SIZE + (item.width * CELL_SIZE) / 2,
-        item.y * CELL_SIZE + (item.height * CELL_SIZE) / 2
-      );
+      ctx.fillText(item.name, x + w / 2, y + h - 10);
     });
-  }, [furniture, selectedId]);
+  }, [furniture, selectedId, loadedImages]);
 
   return (
     <div className="h-screen flex">
@@ -268,32 +343,52 @@ const RoomPlanner = () => {
         
         <CardContent className="flex-1 flex flex-col gap-4 overflow-hidden">
           <div className="space-y-2">
-            <div className="relative">
-              <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Поиск мебели..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Найти мебель..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && searchFurniture()}
+                  className="pl-10"
+                />
+              </div>
+              <Button onClick={searchFurniture} disabled={isSearching}>
+                {isSearching ? (
+                  <Icon name="Loader2" size={18} className="animate-spin" />
+                ) : (
+                  <Icon name="Search" size={18} />
+                )}
+              </Button>
             </div>
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="space-y-2 pr-4">
-              {filteredLibrary.map((item, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => addFurniture(item)}
+            <div className="space-y-3 pr-4">
+              {searchResults.map((model) => (
+                <Card
+                  key={model.id}
+                  className="cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => addFurniture(model)}
                 >
-                  <div 
-                    className="w-4 h-4 rounded mr-2" 
-                    style={{ backgroundColor: item.color }}
-                  />
-                  {item.name} ({item.width}x{item.height})
-                </Button>
+                  <CardContent className="p-3">
+                    <div className="flex gap-3">
+                      <img
+                        src={model.image}
+                        alt={model.name}
+                        className="w-16 h-16 object-cover rounded"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm truncate">{model.name}</h4>
+                        <p className="text-xs text-muted-foreground truncate">{model.description}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {model.dimensions.width}м × {model.dimensions.depth}м
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </ScrollArea>
@@ -344,8 +439,8 @@ const RoomPlanner = () => {
           </div>
 
           <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-            <p>💡 Кликните по предмету для выбора</p>
-            <p>🖱️ Перетаскивайте мышью</p>
+            <p>💡 Кликните по модели для добавления</p>
+            <p>🖱️ Перетаскивайте мебель мышью</p>
             <p>🔄 Поворачивайте выбранный объект</p>
             <p>📦 Всего предметов: {furniture.length}</p>
           </div>
@@ -366,12 +461,12 @@ const RoomPlanner = () => {
         />
 
         <div className="absolute top-4 left-4 bg-card/90 backdrop-blur-sm rounded-lg p-4 shadow-lg">
-          <h2 className="font-semibold text-lg mb-1">2D Планировщик</h2>
+          <h2 className="font-semibold text-lg mb-1">3D Планировщик</h2>
           <p className="text-sm text-muted-foreground">
-            Выберите мебель из списка слева
+            Реальные модели мебели
           </p>
           <p className="text-xs text-muted-foreground mt-2">
-            1 клетка = 50 см
+            Масштаб 1:{SCALE} • 1 клетка = 5 см
           </p>
         </div>
       </div>

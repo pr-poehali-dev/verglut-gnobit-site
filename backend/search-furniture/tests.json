@@ -1,0 +1,32 @@
+{
+  "tests": [
+    {
+      "name": "Search for sofa",
+      "method": "GET",
+      "path": "/?query=диван",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "query": "string",
+        "total": "number",
+        "models": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Search for bed",
+      "method": "GET",
+      "path": "/?query=кровать",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "models": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Handle OPTIONS for CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    }
+  ]
+}
